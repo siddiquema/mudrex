@@ -1,0 +1,5 @@
+# Never upload the API key
+mudrex_key.txt
+*.key
+site/
+__pycache__/
