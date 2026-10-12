@@ -117,7 +117,7 @@ small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0
 .rules li{{margin:3px 0}}
 </style></head><body>
 <h1>Mudrex Rule Scanner</h1>
-<div class="sub">Updated {stamp} &middot; {meta}</div>
+<div class="sub">Updated {stamp} &middot; {meta}<br>New scans run about every 30 minutes (GitHub can be 5&ndash;20 min late)</div>
 <div class="stale" id="stale">This scan is over 2 hours old &mdash; GitHub may be delayed.</div>
 {body}
 <div class="rules"><strong>Before any trade</strong><ul>

@@ -2,7 +2,7 @@ name: Hourly scan
 
 on:
   schedule:
-    - cron: "7 * * * *"   # every hour at :07 (UTC)
+    - cron: "7,37 * * * *"   # every 30 min (:07 and :37 UTC = :37 and :07 IST)
   workflow_dispatch:       # lets you run it by hand from the Actions tab
 
 permissions:
