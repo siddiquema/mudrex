@@ -14,6 +14,7 @@ Differences from the desktop scanner (because there is no key here):
 import html
 import json
 import os
+import shutil
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -93,7 +94,6 @@ def render(result, error=None):
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="900">
 <title>Mudrex Scanner</title>
 <style>
 :root{{--bg:#0f1115;--card:#181b22;--line:#262a33;--text:#e7e9ee;--muted:#8b93a3;
@@ -113,13 +113,15 @@ dl{{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 10px;margin:0}}
 dt{{color:var(--muted);font-size:11px}}dd{{margin:0;font-variant-numeric:tabular-nums}}
 small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0 0}}
 .empty{{background:var(--card);border-radius:12px;padding:18px;text-align:center}}.err{{color:var(--amber)}}
+.bar{{display:flex;align-items:center;gap:10px;margin-bottom:12px}}#scan-btn{{background:var(--green);color:#06140c;border:0;border-radius:10px;padding:10px 16px;font:700 15px system-ui,sans-serif;cursor:pointer}}#scan-btn:disabled{{opacity:.6}}#scan-status{{color:var(--muted);font-size:13px}}
 .rules{{border-top:1px solid var(--line);margin-top:18px;padding-top:10px;color:var(--muted);font-size:13px}}
 .rules li{{margin:3px 0}}
 </style></head><body>
 <h1>Mudrex Rule Scanner</h1>
-<div class="sub">Updated {stamp} &middot; {meta}<br>New scans run about every 30 minutes (GitHub can be 5&ndash;20 min late)</div>
-<div class="stale" id="stale">This scan is over 2 hours old &mdash; GitHub may be delayed.</div>
-{body}
+<div class="sub" id="sub">Last server scan {stamp} &middot; {meta}</div>
+<div class="bar"><button id="scan-btn">&#8635; Scan now</button><span id="scan-status"></span></div>
+<div class="stale" id="stale">Server scan is over 2 hours old &mdash; tap Scan now for live results.</div>
+<div id="results">{body}</div>
 <div class="rules"><strong>Before any trade</strong><ul>
 <li>Open the chart and confirm the setup by eye</li>
 <li><strong>Shorts: check funding</strong> on the coin page (skip if below &minus;0.1%) &mdash; not checked here</li>
@@ -128,8 +130,19 @@ small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0
 <script>
 var t={epoch};if(Date.now()/1000-t>7200)document.getElementById('stale').style.display='block';
 </script>
+<script src="app.js"></script>
 </body></html>
 """
+
+
+def write_live_assets():
+    """Coin list + rule constants for the in-browser Scan now button (app.js)."""
+    cfg = {"pairs": load_coins(), "MAX_RISK": s.MAX_RISK, "MAX_MARGIN": s.MAX_MARGIN,
+           "MIN_USD_VOL_24H": s.MIN_USD_VOL_24H, "SPIKE_MIN_RISE": s.SPIKE_MIN_RISE,
+           "MAX_STOP_DIST": s.MAX_STOP_DIST, "MIN_RR": s.MIN_RR, "MIN_STOP_DIST": s.MIN_STOP_DIST}
+    with open(os.path.join(OUT_DIR, "coins.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    shutil.copy("app.js", os.path.join(OUT_DIR, "app.js"))
 
 
 def main():
@@ -145,6 +158,7 @@ def main():
         error = f"{type(e).__name__}: {e}"
     with open(os.path.join(OUT_DIR, "index.html"), "w", encoding="utf-8") as f:
         f.write(render(result, error))
+    write_live_assets()
     with open(os.path.join(OUT_DIR, "results.json"), "w", encoding="utf-8") as f:
         json.dump({"updated": int(time.time()), "error": error,
                    "found": result["found"] if result else []}, f)

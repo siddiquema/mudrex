@@ -27,15 +27,6 @@ jobs:
           python-version: "3.12"
       - name: Run scanner (public data, no key)
         run: python scanner_web.py
-      - name: Check if browsers may call Mudrex directly (CORS)
-        run: |
-          now=$(date +%s); st=$((now-7200))
-          curl -s -D - -o /dev/null -H "Origin: https://siddiquema.github.io" \
-            "https://trade.mudrex.com/fapi/v1/price/kline?assets=BTC/USDT&aggregation=1h&start_time=$st&end_time=$now" \
-            | tr -d '\r' > site/cors.txt || true
-          curl -s -D - -o /dev/null -X OPTIONS -H "Origin: https://siddiquema.github.io" \
-            -H "Access-Control-Request-Method: GET" \
-            "https://trade.mudrex.com/fapi/v1/price/kline" | tr -d '\r' >> site/cors.txt || true
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
