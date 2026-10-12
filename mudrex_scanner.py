@@ -306,6 +306,7 @@ def main():
             if r:
                 r["symbol"] = p.replace("/USDT", "")
                 r["funding"] = funding
+                r["funding_raw"] = str(info[p].get("funding_fee_perc", "?"))[:9]
                 r["held"] = info[p].get("symbol") in held
                 found.append(r)
 
@@ -317,13 +318,13 @@ def main():
     found.sort(key=lambda r: (r["status"] != "TRIGGERED", -r["rr"]))
     for r in found:
         r["risk"] = r["margin"] * r["dist"]
-    hdr = f"{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}{'STOP%':>7}{'R:R':>6}{'MARGIN':>9}{'RISK':>7}  NOTE"
+    hdr = f"{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}{'STOP%':>7}{'R:R':>6}{'MARGIN':>9}{'RISK':>7}{'FUNDING':>10}  NOTE"
     print(hdr)
     print("-" * len(hdr))
     for r in found:
         tag = "  (already held)" if r["held"] else ""
         print(f"{r['status']:<10}{r['side']:<6}{r['symbol']:<10}{r['price']:>11.6g}{r['stop']:>11.6g}"
-              f"{r['tp']:>11.6g}{100*r['dist']:>6.1f}%{r['rr']:>6.1f}  Rs{r['margin']:>6,.0f}  Rs{r['risk']:>3.0f}  {r['note']}{tag}")
+              f"{r['tp']:>11.6g}{100*r['dist']:>6.1f}%{r['rr']:>6.1f}  Rs{r['margin']:>6,.0f}  Rs{r['risk']:>3.0f}{r['funding_raw']:>10}  {r['note']}{tag}")
     print("\nBefore any trade: open the chart, confirm the setup by eye, check for a token")
     print("unlock in the next 3 days, and check the open-position limit (5) and daily loss limit (Rs.350).\n")
 
