@@ -216,7 +216,9 @@ def check_short(c1h, c4h, funding):
     st4 = supertrend(c4h)
     line4 = st4[-1][0] if st4 and st4[-1] else None
     # TP = first support: the 4h Supertrend line if it's below price, else the pre-spike low
-    tp = line4 if line4 and line4 < price else lo
+    # Fallback target = lowest CLOSE before the spike top (not the wick)
+    lo_close = min(c[4] for c in last18[:hi_i + 1])
+    tp = line4 if line4 and line4 < price else lo_close
     rr = (price - tp) / (stop - price)
     if rr < MIN_RR:
         return None
@@ -241,12 +243,13 @@ def check_long(c1h, c4h, funding):
     flip = len(st4) - 1
     while flip > 0 and st4[flip - 1] is not None and st4[flip - 1][1]:
         flip -= 1
+    # Target = highest 4h CLOSE in 10 days (not the wick: single spikes are rarely revisited)
     window = c4h[-60:]
     offset = len(c4h) - len(window)
-    hi_idx = offset + max(range(len(window)), key=lambda i: window[i][2])
+    hi_idx = offset + max(range(len(window)), key=lambda i: window[i][4])
     if hi_idx < flip:
         return None
-    h60 = c4h[hi_idx][2]
+    h60 = c4h[hi_idx][4]
     pullback = 1 - price / h60
     if not (0.03 <= pullback <= 0.12) or price <= line:
         return None
@@ -262,7 +265,7 @@ def check_long(c1h, c4h, funding):
     status = "TRIGGERED" if st1 and st1[-1] and st1[-1][1] else "WATCH"
     return {"side": "LONG", "status": status, "price": price, "stop": stop, "tp": tp,
             "dist": dist, "rr": rr, "margin": margin_for(dist),
-            "note": f"{100*pullback:.0f}% below 10d high {h60:.6g}"}
+            "note": f"{100*pullback:.0f}% below 10d closing high {h60:.6g}"}
 
 
 # ---------- Main ----------

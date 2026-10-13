@@ -69,7 +69,8 @@
     var stop = hi * 1.005, dist = stop / price - 1;
     if (dist < C.MIN_STOP_DIST || dist > C.MAX_STOP_DIST) return null;
     var st4 = supertrend(h4), l4 = st4.length && st4[st4.length - 1] ? st4[st4.length - 1][0] : null;
-    var tp = (l4 && l4 < price) ? l4 : lo, rr = (price - tp) / (stop - price);
+    var loClose = Math.min.apply(null, w.slice(0, hi_i + 1).map(function (x) { return x[4]; }));
+    var tp = (l4 && l4 < price) ? l4 : loClose, rr = (price - tp) / (stop - price);
     if (rr < C.MIN_RR) return null;
     return { side: "SHORT", status: status, price: price, stop: stop, tp: tp, dist: dist, rr: rr,
       margin: marginFor(dist), note: "rose " + Math.round(100 * (hi / lo - 1)) + "% in 3d to " + fmt(hi) };
@@ -84,9 +85,9 @@
     var flip = st4.length - 1;
     while (flip > 0 && st4[flip - 1] && st4[flip - 1][1]) flip--;
     var off = Math.max(0, h4.length - 60), hiIdx = off;
-    for (k = off; k < h4.length; k++) if (h4[k][2] > h4[hiIdx][2]) hiIdx = k;
+    for (k = off; k < h4.length; k++) if (h4[k][4] > h4[hiIdx][4]) hiIdx = k; // highest CLOSE, not wick
     if (hiIdx < flip) return null;
-    var h60 = h4[hiIdx][2], pull = 1 - price / h60;
+    var h60 = h4[hiIdx][4], pull = 1 - price / h60;
     if (pull < 0.03 || pull > 0.12 || price <= line) return null;
     var stop = line * 0.995, dist = 1 - stop / price;
     if (dist < C.MIN_STOP_DIST || dist > 0.12) return null;
@@ -94,7 +95,7 @@
     if (rr < C.MIN_RR) return null;
     var st1 = supertrend(h1), s1 = st1[st1.length - 1];
     return { side: "LONG", status: (s1 && s1[1]) ? "TRIGGERED" : "WATCH", price: price, stop: stop, tp: h60,
-      dist: dist, rr: rr, margin: marginFor(dist), note: Math.round(100 * pull) + "% below 10d high " + fmt(h60) };
+      dist: dist, rr: rr, margin: marginFor(dist), note: Math.round(100 * pull) + "% below 10d closing high " + fmt(h60) };
   }
 
   function fmt(x) { return (+x).toPrecision(6).replace(/\.?0+$/, "").replace(/\.?0+e/, "e"); }
