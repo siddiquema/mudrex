@@ -300,13 +300,13 @@ def main():
         if usd_vol < MIN_USD_VOL_24H:
             continue
         liquid += 1
-        funding = num(info[p].get("funding_fee_perc"))
+        funding = 100 * num(info[p].get("funding_fee_perc"))  # API gives a fraction (0.00005 = 0.005%)
         for check in (check_short, check_long):
             r = check(h1, h4, funding)
             if r:
                 r["symbol"] = p.replace("/USDT", "")
                 r["funding"] = funding
-                r["funding_raw"] = str(info[p].get("funding_fee_perc", "?"))[:9]
+                r["funding_raw"] = f"{funding:.3f}%"
                 r["held"] = info[p].get("symbol") in held
                 found.append(r)
 
