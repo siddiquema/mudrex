@@ -37,7 +37,7 @@ BASE = "https://trade.mudrex.com/fapi/v1"
 # Rulebook settings
 MAX_RISK = 120
 MAX_MARGIN = 1200
-FUNDING_FLOOR = -0.1          # % per settlement; below this, skip shorts
+FUNDING_FLOOR = -0.05         # % per settlement; below this, skip shorts (rulebook 18 Oct)
 MIN_USD_VOL_24H = 2_000_000   # skip illiquid coins
 SPIKE_MIN_RISE = 0.40         # 40% rise within 3 days
 MAX_STOP_DIST = 0.25          # skip if stop would be >25% away
@@ -47,7 +47,26 @@ MIN_STOP_DIST = 0.02          # stops under 2% get hit by noise; also filters sl
 # Crypto only: skip tokenized stocks, commodities and FX contracts
 NON_CRYPTO = {"XAU", "XAG", "CL", "BZ", "NG", "HG", "XPT", "XPD", "EUR", "GBP", "JPY",
               "USDBRL", "SPX", "NDX", "DJI", "NVDL", "TSLL", "DDOG", "TEAM", "MDB", "ZS",
-              "GTLB", "HUT", "OKLO", "TEM", "MSFU", "CGNX", "4STOCK"}
+              "GTLB", "HUT", "OKLO", "TEM", "MSFU", "CGNX", "4STOCK",
+              # tokenized stocks / ETFs / FX listed on Mudrex (rulebook: crypto only)
+              "AAL", "AAOI", "AAPL", "ADBE", "ADI", "AEHR", "ALAB", "AMAT", "AMC", "AMGN", "AMZN",
+              "APLD", "ARKK", "ARM", "ASML", "ASTS", "AVGO", "AXTI", "BABA", "BAC", "BIIB", "BILL",
+              "BITO", "BMNR", "BRKB", "BTDR", "BX", "BYD", "CIEN", "CIFR", "CLSK", "COHR", "COIN",
+              "CONL", "COST", "CRCL", "CRDO", "CRM", "CRWD", "CRWV", "CSCO", "CSOPSAMSUNG2L",
+              "CSOPSKHYNIX2L", "CVX", "CXMT", "DELL", "DIA", "DJT", "DKNG", "DRAM", "EBAY", "EURUSD",
+              "EWJ", "EWT", "EWY", "EWZ", "FLNC", "FWDI", "GBPUSD", "GE", "GEV", "GIGADEVICE", "GILD",
+              "GLW", "GOOGL", "GPRO", "GS", "HANMI", "HIMS", "HOOD", "HPE", "HUAHONG", "HYUNDAI",
+              "IBIT", "IBM", "INTC", "INTU", "IONQ", "IREN", "ISRG", "IWM", "JD", "JNJ", "JPM", "KLAC",
+              "KO", "KODEX200", "KORU", "KUAISHOU", "LAOPU", "LENOVO", "LGELECTRONICS", "LITE", "LLY",
+              "LRCX", "MA", "MAGS", "MARA", "MCD", "MEITU", "MEITUAN", "MINIMAX", "MNST", "MRK",
+              "MRVL", "MSFT", "MSTR", "MSTU", "MU", "MUU", "NAVER", "NBIS", "NFLX", "NOKIA", "NOW",
+              "NVDA", "NVO", "OKTA", "ORCL", "OUST", "PANW", "PDD", "PEP", "PLTR", "POET", "POPMART",
+              "PYPL", "QCOM", "QQQ", "RDDT", "RDW", "REGN", "RIOT", "RIVN", "RKLB", "SAMSUNG",
+              "SAMSUNGEM", "SENSETIME", "SHOP", "SKHY", "SKHYNIX", "SKUU", "SLX", "SMCI", "SMH",
+              "SMIC", "SNDK", "SNOW", "SOFI", "SONY", "SOXL", "SOXS", "SOXX", "SPOT", "SPXL", "SPY",
+              "SQQQ", "TBT", "TENCENT", "TER", "TMF", "TQQQ", "TSEM", "TSLA", "TSM", "TTWO", "TXN",
+              "TZA", "UBER", "UNH", "USDJPY", "UVXY", "VRT", "VST", "WDC", "WMT", "XBI", "XIAOMI",
+              "XLE", "XLF", "XLK", "XLP", "XLU", "XLV", "XOM", "YOFC", "ZHIPU", "ZHONGJI", "ZM"}
 
 
 def is_crypto(base):
@@ -321,15 +340,28 @@ def main():
     found.sort(key=lambda r: (r["status"] != "TRIGGERED", -r["rr"]))
     for r in found:
         r["risk"] = r["margin"] * r["dist"]
-    hdr = f"{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}{'STOP%':>7}{'R:R':>6}{'MARGIN':>9}{'RISK':>7}{'FUNDING':>10}  NOTE"
+    # Being tested (rulebook): does the 15-minute Supertrend agree with the trade? Recorded, not a filter.
+    try:
+        c15 = fetch_klines([r["symbol"] + "/USDT" for r in found], "15m", 60, 900)
+    except Exception:
+        c15 = {}
+    for r in found:
+        st = supertrend(c15.get(r["symbol"] + "/USDT", []))
+        if st and st[-1]:
+            green = st[-1][1]
+            r["tf15"] = "agree" if green == (r["side"] == "LONG") else "AGAINST"
+        else:
+            r["tf15"] = "?"
+    hdr = f"{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}{'STOP%':>7}{'R:R':>6}{'MARGIN':>9}{'RISK':>7}{'FUNDING':>10}{'15M':>9}  NOTE"
     print(hdr)
     print("-" * len(hdr))
     for r in found:
         tag = "  (already held)" if r["held"] else ""
         print(f"{r['status']:<10}{r['side']:<6}{r['symbol']:<10}{r['price']:>11.6g}{r['stop']:>11.6g}"
-              f"{r['tp']:>11.6g}{100*r['dist']:>6.1f}%{r['rr']:>6.1f}  Rs{r['margin']:>6,.0f}  Rs{r['risk']:>3.0f}{r['funding_raw']:>10}  {r['note']}{tag}")
+              f"{r['tp']:>11.6g}{100*r['dist']:>6.1f}%{r['rr']:>6.1f}  Rs{r['margin']:>6,.0f}  Rs{r['risk']:>3.0f}{r['funding_raw']:>10}{r['tf15']:>9}  {r['note']}{tag}")
     print("\nBefore any trade: open the chart, confirm the setup by eye, check for a token")
-    print("unlock in the next 3 days, and check the open-position limit (5) and daily loss limit (Rs.350).\n")
+    print("unlock in the next 3 days, and check the open-position limit (5) and daily loss limit (Rs.350).")
+    print("15M = whether the 15-minute Supertrend agrees with the trade (being tested - note it in your log).\n")
 
 
 if __name__ == "__main__":
