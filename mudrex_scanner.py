@@ -9,7 +9,7 @@ Setups checked
   SPIKE SHORT  - coin rose 40%+ within 3 days, then stalls.
                  TRIGGERED = 1h Supertrend has turned red.
                  WATCH     = lower high forming, 1h Supertrend still green.
-                 Skipped if funding < -0.1% (shorts crowded).
+                 Skipped if funding < -0.05% (shorts crowded).
   TREND LONG   - 4h Supertrend green, price pulled back 3-12% from the
                  10-day high and holding above the Supertrend line.
                  TRIGGERED = 1h Supertrend green again (pullback holding).

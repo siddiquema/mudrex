@@ -124,7 +124,7 @@ small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0
 <div id="results">{body}</div>
 <div class="rules"><strong>Before any trade</strong><ul>
 <li>Open the chart and confirm the setup by eye</li>
-<li><strong>Shorts: check funding</strong> on the coin page (skip if below &minus;0.1%) &mdash; not checked here</li>
+<li><strong>Shorts: check funding</strong> on the coin page (skip if below &minus;0.05%) &mdash; not checked here</li>
 <li>Check for a token unlock in the next 3 days</li>
 <li>Max 5 open positions &middot; daily loss limit &#8377;350</li></ul></div>
 <script>
