@@ -87,7 +87,13 @@ def load_key():
     return key
 
 
+# Since 22 Oct 2026 Mudrex answers 401 to price/kline requests without a key,
+# so every request sends the key once main() has loaded it. Still GET only.
+KLINE_KEY = None
+
+
 def http_get(url, key=None):
+    key = key or KLINE_KEY
     headers = {"X-Authentication": key} if key else {}
     req = urllib.request.Request(url, method="GET", headers=headers)
     for _ in range(4):
@@ -99,7 +105,9 @@ def http_get(url, key=None):
                 time.sleep(int(e.headers.get("Retry-After", "3")))
                 continue
             if e.code == 401:
-                sys.exit("Mudrex rejected the key (401). Check mudrex_key.txt.")
+                if key:
+                    sys.exit("Mudrex rejected the key (401). Check mudrex_key.txt.")
+                sys.exit("Mudrex now requires an API key for this data (401) - none was sent.")
             raise
         except urllib.error.URLError:
             time.sleep(2)
@@ -290,7 +298,9 @@ def check_long(c1h, c4h, funding):
 # ---------- Main ----------
 
 def main():
+    global KLINE_KEY
     key = load_key()
+    KLINE_KEY = key
     print("\nMUDREX RULE SCANNER  |", time.strftime("%d %b %Y %H:%M"), "\n")
     assets = fetch_assets(key)
     print(f"Listed coins: {len(assets)}")
