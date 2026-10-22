@@ -87,13 +87,14 @@ def load_key():
     return key
 
 
-# Since 22 Oct 2026 Mudrex answers 401 to price/kline requests without a key,
-# so every request sends the key once main() has loaded it. Still GET only.
+# Mudrex's price/kline endpoint is normally public, but on 22 Oct 2026 it briefly
+# answered 401 without a key - and 401 WITH one. So keyless requests go out
+# keyless first and retry once with the key only if Mudrex says 401. GET only.
 KLINE_KEY = None
 
 
-def http_get(url, key=None):
-    key = key or KLINE_KEY
+def _get_once(url, key):
+    """Returns parsed JSON, or the int 401 if Mudrex refuses this key/no-key."""
     headers = {"X-Authentication": key} if key else {}
     req = urllib.request.Request(url, method="GET", headers=headers)
     for _ in range(4):
@@ -105,13 +106,26 @@ def http_get(url, key=None):
                 time.sleep(int(e.headers.get("Retry-After", "3")))
                 continue
             if e.code == 401:
-                if key:
-                    sys.exit("Mudrex rejected the key (401). Check mudrex_key.txt.")
-                sys.exit("Mudrex now requires an API key for this data (401) - none was sent.")
+                return 401
             raise
         except urllib.error.URLError:
             time.sleep(2)
     sys.exit("Could not reach Mudrex after several tries.")
+
+
+def http_get(url, key=None):
+    if key:  # account endpoints: the key is required
+        body = _get_once(url, key)
+        if body == 401:
+            sys.exit("Mudrex rejected the key (401). Check mudrex_key.txt.")
+        return body
+    body = _get_once(url, None)  # public endpoints: try without the key first
+    if body == 401 and KLINE_KEY:
+        body = _get_once(url, KLINE_KEY)
+    if body == 401:
+        sys.exit("Mudrex refused the price data (401) with and without the key - "
+                 "likely a Mudrex-side issue; try again in a few minutes.")
+    return body
 
 
 def num(x, d=0.0):
