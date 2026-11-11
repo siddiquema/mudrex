@@ -51,7 +51,17 @@
     return out;
   }
 
-  function marginFor(d) { return d > 0 ? Math.min(C.MAX_MARGIN, C.MAX_RISK / d) : 0; }
+  var LOG_KEY = "mudrexScanLog", LOG_DAYS = 14, LOG_MAX = 600;
+  function cfgNum(k, d) { return (C && typeof C[k] === "number") ? C[k] : d; }
+  function holdHours() { return cfgNum("TIME_STOP_HOURS", 24); }
+
+  // Shorts are sized larger than longs (rulebook 11 Nov); falls back to the long limits on an old coins.json
+  function marginFor(d, side) {
+    var short = side === "SHORT";
+    var risk = short ? cfgNum("MAX_RISK_SHORT", C.MAX_RISK) : C.MAX_RISK;
+    var cap = short ? cfgNum("MAX_MARGIN_SHORT", C.MAX_MARGIN) : C.MAX_MARGIN;
+    return d > 0 ? Math.min(cap, risk / d) : 0;
+  }
 
   function checkShort(h1, h4) {
     if (h4.length < 20 || h1.length < 30) return null;
@@ -73,7 +83,7 @@
     var tp = (l4 && l4 < price) ? l4 : loClose, rr = (price - tp) / (stop - price);
     if (rr < C.MIN_RR) return null;
     return { side: "SHORT", status: status, price: price, stop: stop, tp: tp, dist: dist, rr: rr,
-      margin: marginFor(dist), note: "rose " + Math.round(100 * (hi / lo - 1)) + "% in 3d to " + fmt(hi) };
+      margin: marginFor(dist, "SHORT"), note: "rose " + Math.round(100 * (hi / lo - 1)) + "% in 3d to " + fmt(hi) };
   }
 
   function checkLong(h1, h4) {
@@ -102,8 +112,64 @@
   function inr(x) { return "₹" + Math.round(x).toLocaleString("en-IN"); }
   function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
-  function card(r) {
-    var trig = r.status === "TRIGGERED";
+  // Times are always shown in IST, whatever the device is set to
+  function when(ms) {
+    return new Date(ms).toLocaleString("en-IN", { weekday: "short", day: "2-digit", month: "short",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Kolkata" });
+  }
+  function istHour(ms) {
+    return +new Date(ms).toLocaleString("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: "Asia/Kolkata" });
+  }
+
+  // ---- Past flags, kept in this browser ----
+  function loadLog() {
+    try { var a = JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); return Array.isArray(a) ? a : []; }
+    catch (e) { return []; }
+  }
+  function saveLog(found, now) {
+    var log = loadLog().filter(function (x) { return x && x.t >= now - LOG_DAYS * 864e5; });
+    found.forEach(function (r) {
+      // reopening the page within the hour must not log the same flag again
+      var dup = log.some(function (x) {
+        return x.symbol === r.symbol && x.side === r.side && x.status === r.status && now - x.t < 3600e3;
+      });
+      if (!dup) log.push({ t: now, status: r.status, side: r.side, symbol: r.symbol, price: r.price,
+        stop: r.stop, tp: r.tp, dist: r.dist, rr: r.rr, margin: r.margin });
+    });
+    if (log.length > LOG_MAX) log = log.slice(-LOG_MAX);
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); return true; } catch (e) { return false; }
+  }
+  function renderHistory(saved) {
+    var box = document.getElementById("hist-list"); if (!box) return;
+    var f = document.getElementById("hist-filter"), cnt = document.getElementById("hist-count");
+    var q = ((f && f.value) || "").trim().toUpperCase(), now = Date.now(), H = holdHours();
+    var all = loadLog();
+    var log = all.filter(function (x) { return !q || String(x.symbol).toUpperCase().indexOf(q) === 0; })
+      .sort(function (a, b) { return b.t - a.t; });
+    if (cnt) cnt.textContent = all.length ? "(" + all.length + ")" : "";
+    if (saved === false) { box.innerHTML = '<p class="note">This browser is not saving history (storage is blocked or full).</p>'; return; }
+    if (!log.length) {
+      box.innerHTML = '<p class="note">' + (q ? "No past flags for " + esc(q) + "." : "Nothing saved yet. Flags appear here after a live scan finds a candidate.") + "</p>";
+      return;
+    }
+    box.innerHTML = log.map(function (x) {
+      var cb = x.t + H * 3600e3, left = (cb - now) / 3600e3;
+      var leftTxt = left >= 1 ? Math.round(left) + "h left" : left > 0 ? "under 1h left" :
+        "time stop passed " + Math.max(1, Math.round(-left)) + "h ago";
+      var trig = x.status === "TRIGGERED";
+      return '<div class="hrow' + (left > 0 ? "" : " past") + '"><div class="htop">' +
+        '<span class="side ' + (x.side === "LONG" ? "long" : "short") + '">' + esc(x.side) + "</span>" +
+        "<strong>" + esc(x.symbol) + "</strong>" +
+        '<span class="badge ' + (trig ? "b-trig" : "b-watch") + '">' + esc(x.status) + "</span>" +
+        '<span class="hwhen">flagged ' + when(x.t) + "</span></div>" +
+        '<div class="hbody">Entry ' + fmt(x.price) + " &middot; Stop " + fmt(x.stop) + " &middot; TP " + fmt(x.tp) +
+        " &middot; Margin " + inr(x.margin) + "</div>" +
+        '<div class="hbody">Close by <strong>' + when(cb) + " IST</strong> &middot; " + leftTxt + "</div></div>";
+    }).join("");
+  }
+
+  function card(r, now) {
+    var trig = r.status === "TRIGGERED", H = holdHours();
     return '<article class="card ' + (trig ? "trig" : "") + '"><div class="top">' +
       '<span class="badge ' + (trig ? "b-trig" : "b-watch") + '">' + r.status + "</span>" +
       '<span class="side ' + (r.side === "LONG" ? "long" : "short") + '">' + r.side + "</span>" +
@@ -114,6 +180,7 @@
       "<div><dt>R:R</dt><dd>" + r.rr.toFixed(1) + "</dd></div>" +
       "<div><dt>Margin</dt><dd>" + inr(r.margin) + "</dd></div>" +
       "<div><dt>Risk</dt><dd>" + inr(r.margin * r.dist) + "</dd></div></dl>" +
+      '<p class="hold">Time stop: close by <strong>' + when(now + H * 3600e3) + " IST</strong> if you enter now (" + H + "h)</p>" +
       '<p class="note">' + esc(r.note) + "</p></article>";
   }
 
@@ -143,11 +210,13 @@
       found.sort(function (x, y) {
         return (x.status !== "TRIGGERED") - (y.status !== "TRIGGERED") || y.rr - x.rr;
       });
-      results.innerHTML = found.length ? found.map(card).join("") :
+      var now = Date.now();
+      results.innerHTML = found.length ? found.map(function (r) { return card(r, now); }).join("") :
         '<p class="empty">No coins meet the rules right now.<br><strong>That is a valid answer - no trade.</strong></p>';
       var t = new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
       sub.innerHTML = "<strong>Live scan " + t + " IST</strong> &middot; " + liquid + " liquid of " + pairs.length + " coins";
       var st = document.getElementById("stale"); if (st) st.style.display = "none";
+      renderHistory(found.length ? saveLog(found, now) : undefined);
       statusEl.textContent = "";
     } catch (e) {
       statusEl.textContent = "Live scan failed: " + e.message + ". Showing the last server scan.";
@@ -161,6 +230,11 @@
     results = document.getElementById("results");
     sub = document.getElementById("sub");
     btn.addEventListener("click", scan);
+    var h = istHour(Date.now()), night = document.getElementById("night");
+    if (night && (h >= 22 || h < 7)) night.style.display = "block";
+    var filter = document.getElementById("hist-filter");
+    if (filter) filter.addEventListener("input", function () { renderHistory(); });
+    renderHistory();
     scan(); // run a fresh live scan every time the page opens
   });
 })();

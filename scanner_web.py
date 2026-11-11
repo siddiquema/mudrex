@@ -9,6 +9,7 @@ mudrex_scanner.py, and writes a phone-friendly page to site/index.html.
 Differences from the desktop scanner (because there is no key here):
   - funding rate is NOT checked -> check it on the coin page before a short
   - positions you hold are NOT marked
+  - past flags are kept by the page itself, in the browser (app.js), not here
 """
 
 import html
@@ -60,6 +61,7 @@ def fmt_price(x):
 def render(result, error=None):
     now = datetime.now(IST)
     stamp = now.strftime("%d %b %Y, %I:%M %p IST")
+    close_by = (now + timedelta(hours=s.TIME_STOP_HOURS)).strftime("%a %d %b, %H:%M")
     epoch = int(now.timestamp())
     rows = ""
     if result:
@@ -81,6 +83,7 @@ def render(result, error=None):
           <div><dt>Margin</dt><dd>&#8377;{r['margin']:,.0f}</dd></div>
           <div><dt>Risk</dt><dd>&#8377;{r['risk']:,.0f}</dd></div>
         </dl>
+        <p class="hold">Time stop: close by <strong>{close_by} IST</strong> if you enter now ({s.TIME_STOP_HOURS}h)</p>
         <p class="note">{html.escape(r['note'])}</p>
       </article>"""
     if error:
@@ -114,18 +117,37 @@ dt{{color:var(--muted);font-size:11px}}dd{{margin:0;font-variant-numeric:tabular
 small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0 0}}
 .empty{{background:var(--card);border-radius:12px;padding:18px;text-align:center}}.err{{color:var(--amber)}}
 .bar{{display:flex;align-items:center;gap:10px;margin-bottom:12px}}#scan-btn{{background:var(--green);color:#06140c;border:0;border-radius:10px;padding:10px 16px;font:700 15px system-ui,sans-serif;cursor:pointer}}#scan-btn:disabled{{opacity:.6}}#scan-status{{color:var(--muted);font-size:13px}}
+.hold{{font-size:13px;margin:8px 0 0}}
+.night{{display:none;background:#3a1518;color:#ff9a9d;padding:8px 10px;border-radius:8px;margin-bottom:12px;font-size:13px}}
+#history{{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}}
+#history summary{{cursor:pointer;font-weight:700;padding:6px 0}}
+#hist-count{{color:var(--muted);font-weight:400;font-size:13px}}
+#hist-filter{{width:100%;margin:8px 0;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text);font:15px system-ui,sans-serif}}
+.hrow{{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:8px;font-size:13px}}
+.hrow.past{{opacity:.6}}
+.htop{{display:flex;gap:8px;align-items:center;margin-bottom:4px;font-size:14px}}
+.hwhen{{margin-left:auto;color:var(--muted);font-size:12px}}
+.hbody{{color:var(--muted);font-variant-numeric:tabular-nums}}.hbody strong{{color:var(--text)}}
 .rules{{border-top:1px solid var(--line);margin-top:18px;padding-top:10px;color:var(--muted);font-size:13px}}
 .rules li{{margin:3px 0}}
 </style></head><body>
 <h1>Mudrex Rule Scanner</h1>
 <div class="sub" id="sub">Last server scan {stamp} &middot; {meta}</div>
 <div class="bar"><button id="scan-btn">&#8635; Scan now</button><span id="scan-status"></span></div>
+<div class="night" id="night">Night window (10 PM &ndash; 7 AM IST): the rulebook allows no new entries now, with one exception per night that meets all four conditions.</div>
 <div class="stale" id="stale">Server scan is over 2 hours old &mdash; tap Scan now for live results.</div>
 <div id="results">{body}</div>
+<details id="history"><summary>Past flags on this device <span id="hist-count"></span></summary>
+<input id="hist-filter" type="search" placeholder="Filter by coin, e.g. LYN" autocomplete="off" aria-label="Filter past flags by coin">
+<div id="hist-list"></div>
+<p class="note">Saved in this browser only, for 14 days, each time a live scan finds a candidate. Close by is {s.TIME_STOP_HOURS} hours after the flag; if you entered later, count {s.TIME_STOP_HOURS} hours from your own entry.</p>
+</details>
 <div class="rules"><strong>Before any trade</strong><ul>
 <li>Open the chart and confirm the setup by eye</li>
 <li><strong>Shorts: check funding</strong> on the coin page (skip if below &minus;0.05%) &mdash; not checked here</li>
 <li>Check for a token unlock in the next 3 days</li>
+<li>Shorts are sized at &#8377;{s.MAX_RISK_SHORT} risk (margin cap &#8377;{s.MAX_MARGIN_SHORT:,}), longs at &#8377;{s.MAX_RISK} (cap &#8377;{s.MAX_MARGIN:,})</li>
+<li><strong>Already in this coin?</strong> It is not a new trade. No adds at a loss &mdash; holdings are not checked here</li>
 <li>Max 5 open positions &middot; daily loss limit &#8377;350</li></ul></div>
 <script>
 var t={epoch};if(Date.now()/1000-t>7200)document.getElementById('stale').style.display='block';
@@ -138,6 +160,8 @@ var t={epoch};if(Date.now()/1000-t>7200)document.getElementById('stale').style.d
 def write_live_assets():
     """Coin list + rule constants for the in-browser Scan now button (app.js)."""
     cfg = {"pairs": load_coins(), "MAX_RISK": s.MAX_RISK, "MAX_MARGIN": s.MAX_MARGIN,
+           "MAX_RISK_SHORT": s.MAX_RISK_SHORT, "MAX_MARGIN_SHORT": s.MAX_MARGIN_SHORT,
+           "TIME_STOP_HOURS": s.TIME_STOP_HOURS,
            "MIN_USD_VOL_24H": s.MIN_USD_VOL_24H, "SPIKE_MIN_RISE": s.SPIKE_MIN_RISE,
            "MAX_STOP_DIST": s.MAX_STOP_DIST, "MIN_RR": s.MIN_RR, "MIN_STOP_DIST": s.MIN_STOP_DIST}
     with open(os.path.join(OUT_DIR, "coins.json"), "w", encoding="utf-8") as f:

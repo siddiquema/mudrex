@@ -16,27 +16,49 @@ Setups checked
                  WATCH     = still pulling back.
 
 For each candidate it prints entry, stop, TP and the margin that keeps the
-loss at Rs.120 (capped at Rs.1,200).
+loss within the rulebook: shorts Rs.240 risk (margin capped at Rs.2,400),
+longs Rs.120 risk (capped at Rs.1,200). CLOSE BY is the 24-hour time stop,
+counted from the scan time.
+
+A coin you already hold is shown as HELD with no margin: it is not a new
+trade, and adds are allowed only in profit with the stop already at entry.
+
+Every run is saved to scanner_log.csv in this folder.
 
 Run:   python mudrex_scanner.py
+       python mudrex_scanner.py --history            # flags from the last 3 days
+       python mudrex_scanner.py --history LYN        # one coin
+       python mudrex_scanner.py --history --days 7   # further back
 Key:   read from mudrex_key.txt in the same folder (same as mudrex_review.py).
 
 Always check the chart yourself and look up token unlocks before trading.
 This is a filter to save you time, not a signal to trade.
 """
 
+import argparse
+import csv
 import json
 import os
 import sys
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 BASE = "https://trade.mudrex.com/fapi/v1"
 
 # Rulebook settings
-MAX_RISK = 120
-MAX_MARGIN = 1200
+MAX_RISK = 120                # longs
+MAX_MARGIN = 1200             # longs
+MAX_RISK_SHORT = 240          # spike shorts, sized at entry (rulebook 11 Nov)
+MAX_MARGIN_SHORT = 2400
+TIME_STOP_HOURS = 24          # a trade that hasn't worked by then is closed
+NO_ENTRY_FROM, NO_ENTRY_TO = 22, 7   # IST hours: no new entries 10 PM - 7 AM
+IST = timezone(timedelta(hours=5, minutes=30))
+LOG_FILE = "scanner_log.csv"
+LOG_FIELDS = ["scan_time", "status", "side", "coin", "price", "stop", "tp", "stop_pct", "rr",
+              "margin", "risk", "funding_pct", "tf15", "close_by", "note"]
+TIME_FMT = "%Y-%m-%d %H:%M"
 FUNDING_FLOOR = -0.05         # % per settlement; below this, skip shorts (rulebook 18 Oct)
 MIN_USD_VOL_24H = 2_000_000   # skip illiquid coins
 SPIKE_MIN_RISE = 0.40         # 40% rise within 3 days
@@ -223,8 +245,9 @@ def supertrend(candles, period=10, mult=3.0):
 
 # ---------- Setups ----------
 
-def margin_for(dist):
-    return min(MAX_MARGIN, MAX_RISK / dist) if dist > 0 else 0
+def margin_for(dist, side="LONG"):
+    risk, cap = (MAX_RISK_SHORT, MAX_MARGIN_SHORT) if side == "SHORT" else (MAX_RISK, MAX_MARGIN)
+    return min(cap, risk / dist) if dist > 0 else 0
 
 
 def check_short(c1h, c4h, funding):
@@ -264,7 +287,7 @@ def check_short(c1h, c4h, funding):
     if rr < MIN_RR:
         return None
     return {"side": "SHORT", "status": status, "price": price, "stop": stop, "tp": tp,
-            "dist": dist, "rr": rr, "margin": margin_for(dist),
+            "dist": dist, "rr": rr, "margin": margin_for(dist, "SHORT"),
             "note": f"rose {100*(hi/lo-1):.0f}% in 3d to {hi:.6g}"}
 
 
@@ -309,13 +332,93 @@ def check_long(c1h, c4h, funding):
             "note": f"{100*pullback:.0f}% below 10d closing high {h60:.6g}"}
 
 
+# ---------- Log of past scans ----------
+
+def log_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), LOG_FILE)
+
+
+def append_log(now, found):
+    """Adds this run's candidates to scanner_log.csv (opens in Excel too)."""
+    path = log_path()
+    try:
+        new = not os.path.exists(path)
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(LOG_FIELDS)
+            for r in found:
+                held = r["status"] == "HELD"
+                w.writerow([now.strftime(TIME_FMT), r["status"], r["side"], r["symbol"],
+                            f"{r['price']:.6g}", f"{r['stop']:.6g}", f"{r['tp']:.6g}",
+                            f"{100*r['dist']:.1f}", f"{r['rr']:.1f}",
+                            "" if held else f"{r['margin']:.0f}", "" if held else f"{r['risk']:.0f}",
+                            f"{r['funding']:.3f}", r["tf15"],
+                            r["close_by"].strftime(TIME_FMT), r["note"]])
+        print(f"Saved to {LOG_FILE}. To look back:  python mudrex_scanner.py --history [COIN]\n")
+    except OSError as e:
+        print(f"(Could not save to {LOG_FILE}: {e}. Close it in Excel if it is open.)\n")
+
+
+def show_history(coin, days):
+    path = log_path()
+    if not os.path.exists(path):
+        print(f"\nNo {LOG_FILE} yet - it is created the first time a scan finds a candidate.\n")
+        return
+    now = datetime.now(IST)
+    cutoff = now - timedelta(days=days)
+    rows = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            try:
+                t = datetime.strptime(r["scan_time"], TIME_FMT).replace(tzinfo=IST)
+                cb = datetime.strptime(r["close_by"], TIME_FMT).replace(tzinfo=IST)
+            except (KeyError, ValueError):
+                continue
+            if t >= cutoff and (not coin or r["coin"].upper() == coin.upper()):
+                rows.append((t, cb, r))
+    which = f" for {coin.upper()}" if coin else ""
+    print(f"\nSCANNER HISTORY{which}  |  last {days} days  |  now {now:%a %d %b %H:%M} IST\n")
+    if not rows:
+        print("Nothing logged in that window.\n")
+        return
+    hdr = (f"{'SCANNED':<17}{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}"
+           f"{'MARGIN':>9}  {'CLOSE BY':<17}TIME LEFT")
+    print(hdr)
+    print("-" * len(hdr))
+    for t, cb, r in rows:
+        left = (cb - now).total_seconds() / 3600
+        left_txt = f"{left:.0f}h left" if left > 0 else f"time stop passed {-left:.0f}h ago"
+        margin = f"Rs{float(r['margin']):,.0f}" if r.get("margin") else "-"
+        if r["status"] == "HELD":  # not a new trade, so no time stop from this scan
+            when = f"{'-':<17}already held at that scan"
+        else:
+            when = f"{cb:%a %d %b %H:%M} {left_txt}"
+        print(f"{t:%a %d %b %H:%M} {r['status']:<10}{r['side']:<6}{r['coin']:<10}{r['price']:>11}"
+              f"{r['stop']:>11}{r['tp']:>11}{margin:>9}  {when}")
+    print(f"\nCLOSE BY is {TIME_STOP_HOURS} hours after that scan. If you entered later, count "
+          f"{TIME_STOP_HOURS} hours from your own entry time.\n")
+
+
 # ---------- Main ----------
 
 def main():
     global KLINE_KEY
+    ap = argparse.ArgumentParser(description="Read-only Mudrex rule scanner")
+    ap.add_argument("--history", nargs="?", const="", default=None, metavar="COIN",
+                    help="show past scanner flags instead of scanning (optionally for one coin)")
+    ap.add_argument("--days", type=int, default=3, help="how far back --history looks (default 3)")
+    args = ap.parse_args()
+    if args.history is not None:
+        show_history(args.history, args.days)
+        return
     key = load_key()
     KLINE_KEY = key
-    print("\nMUDREX RULE SCANNER  |", time.strftime("%d %b %Y %H:%M"), "\n")
+    now = datetime.now(IST)
+    print("\nMUDREX RULE SCANNER  |", now.strftime("%d %b %Y %H:%M"), "IST\n")
+    if now.hour >= NO_ENTRY_FROM or now.hour < NO_ENTRY_TO:
+        print("! NIGHT WINDOW (10 PM - 7 AM IST): the rulebook allows no new entries now,")
+        print("  with one exception per night that meets all four conditions.\n")
     assets = fetch_assets(key)
     print(f"Listed coins: {len(assets)}")
     info = {}
@@ -361,9 +464,13 @@ def main():
         print("No coins meet the rules right now. That's a valid answer - no trade.\n")
         return
 
-    found.sort(key=lambda r: (r["status"] != "TRIGGERED", -r["rr"]))
+    close_by = now + timedelta(hours=TIME_STOP_HOURS)
     for r in found:
         r["risk"] = r["margin"] * r["dist"]
+        r["close_by"] = close_by
+        if r["held"]:
+            r["status"] = "HELD"
+    found.sort(key=lambda r: (r["status"] == "HELD", r["status"] != "TRIGGERED", -r["rr"]))
     # Being tested (rulebook): does the 15-minute Supertrend agree with the trade? Recorded, not a filter.
     try:
         c15 = fetch_klines([r["symbol"] + "/USDT" for r in found], "15m", 60, 900)
@@ -376,14 +483,24 @@ def main():
             r["tf15"] = "agree" if green == (r["side"] == "LONG") else "AGAINST"
         else:
             r["tf15"] = "?"
-    hdr = f"{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}{'STOP%':>7}{'R:R':>6}{'MARGIN':>9}{'RISK':>7}{'FUNDING':>10}{'15M':>9}  NOTE"
+    hdr = f"{'STATUS':<10}{'SIDE':<6}{'COIN':<10}{'PRICE':>11}{'STOP':>11}{'TP':>11}{'STOP%':>7}{'R:R':>6}{'MARGIN':>9}{'RISK':>7}{'FUNDING':>10}{'15M':>9}  {'CLOSE BY':<17}NOTE"
     print(hdr)
     print("-" * len(hdr))
     for r in found:
-        tag = "  (already held)" if r["held"] else ""
+        if r["held"]:
+            size = f"{'-':>10}{'-':>7}"
+            when = f"{'-':<17}"
+            note = "already held - not a new trade; add only in profit with stop at entry"
+        else:
+            size = f"  Rs{r['margin']:>6,.0f}  Rs{r['risk']:>3.0f}"
+            when = f"{r['close_by']:%a %d %b %H:%M} "
+            note = r["note"]
         print(f"{r['status']:<10}{r['side']:<6}{r['symbol']:<10}{r['price']:>11.6g}{r['stop']:>11.6g}"
-              f"{r['tp']:>11.6g}{100*r['dist']:>6.1f}%{r['rr']:>6.1f}  Rs{r['margin']:>6,.0f}  Rs{r['risk']:>3.0f}{r['funding_raw']:>10}{r['tf15']:>9}  {r['note']}{tag}")
-    print("\nBefore any trade: open the chart, confirm the setup by eye, check for a token")
+              f"{r['tp']:>11.6g}{100*r['dist']:>6.1f}%{r['rr']:>6.1f}{size}{r['funding_raw']:>10}{r['tf15']:>9}  {when}{note}")
+    print(f"\nCLOSE BY = the {TIME_STOP_HOURS}-hour time stop if you enter now. Enter later and it moves by the same amount.")
+    print(f"Shorts are sized at Rs.{MAX_RISK_SHORT} risk (cap Rs.{MAX_MARGIN_SHORT:,}), longs at Rs.{MAX_RISK} (cap Rs.{MAX_MARGIN:,}).")
+    append_log(now, found)
+    print("Before any trade: open the chart, confirm the setup by eye, check for a token")
     print("unlock in the next 3 days, and check the open-position limit (5) and daily loss limit (Rs.350).")
     print("15M = whether the 15-minute Supertrend agrees with the trade (being tested - note it in your log).\n")
 
