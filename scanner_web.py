@@ -118,6 +118,15 @@ small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0
 .empty{{background:var(--card);border-radius:12px;padding:18px;text-align:center}}.err{{color:var(--amber)}}
 .bar{{display:flex;align-items:center;gap:10px;margin-bottom:12px}}#scan-btn{{background:var(--green);color:#06140c;border:0;border-radius:10px;padding:10px 16px;font:700 15px system-ui,sans-serif;cursor:pointer}}#scan-btn:disabled{{opacity:.6}}#scan-status{{color:var(--muted);font-size:13px}}
 .hold{{font-size:13px;margin:8px 0 0}}
+.took{{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-weight:600;cursor:pointer}}
+.took input{{width:22px;height:22px;accent-color:var(--green);flex:none}}
+#taken{{display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:10px}}
+#taken h2{{font-size:16px;margin:4px 0 8px}}
+.hrow.mine{{border-color:var(--green)}}
+.took-remove,#copy-taken{{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 12px;font:600 13px system-ui,sans-serif;cursor:pointer}}
+.took-remove{{margin-top:6px;color:var(--muted)}}
+#copy-status{{color:var(--muted);font-size:13px;margin-left:8px}}
+#copy-box{{display:none;width:100%;height:120px;margin-top:8px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;font:12px ui-monospace,monospace}}
 .night{{display:none;background:#3a1518;color:#ff9a9d;padding:8px 10px;border-radius:8px;margin-bottom:12px;font-size:13px}}
 #history{{margin-top:18px;border-top:1px solid var(--line);padding-top:10px}}
 #history summary{{cursor:pointer;font-weight:700;padding:6px 0}}
@@ -137,6 +146,12 @@ small{{color:var(--muted)}}.note{{color:var(--muted);font-size:13px;margin:8px 0
 <div class="night" id="night">Night window (10 PM &ndash; 7 AM IST): the rulebook allows no new entries now, with one exception per night that meets all four conditions.</div>
 <div class="stale" id="stale">Server scan is over 2 hours old &mdash; tap Scan now for live results.</div>
 <div id="results">{body}</div>
+<section id="taken"><h2>Trades I took <span id="taken-count"></span></h2>
+<div id="taken-list"></div>
+<button id="copy-taken" type="button">Copy for review</button><span id="copy-status"></span>
+<textarea id="copy-box" readonly aria-label="Trades I took, as text"></textarea>
+<p class="note">Tick &ldquo;I took this trade&rdquo; on a card when you enter. Close by is {s.TIME_STOP_HOURS} hours after the tick. Kept in this browser for 60 days; Copy for review gives a list to paste into the weekly review.</p>
+</section>
 <details id="history"><summary>Past flags on this device <span id="hist-count"></span></summary>
 <input id="hist-filter" type="search" placeholder="Filter by coin, e.g. LYN" autocomplete="off" aria-label="Filter past flags by coin">
 <div id="hist-list"></div>

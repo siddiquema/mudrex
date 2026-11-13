@@ -52,6 +52,8 @@
   }
 
   var LOG_KEY = "mudrexScanLog", LOG_DAYS = 14, LOG_MAX = 600;
+  var TAKEN_KEY = "mudrexTaken", TAKEN_DAYS = 60, TAKEN_SHOW_DAYS = 7;
+  var lastFound = [], lastScan = 0;
   function cfgNum(k, d) { return (C && typeof C[k] === "number") ? C[k] : d; }
   function holdHours() { return cfgNum("TIME_STOP_HOURS", 24); }
 
@@ -168,7 +170,62 @@
     }).join("");
   }
 
-  function card(r, now) {
+  // ---- Trades I took (ticked on a card), kept in this browser ----
+  function loadTaken() {
+    try { var a = JSON.parse(localStorage.getItem(TAKEN_KEY) || "[]"); return Array.isArray(a) ? a : []; }
+    catch (e) { return []; }
+  }
+  function sameOpen(x, r, now) { // the same coin and side, ticked within the time-stop window
+    return x && x.symbol === r.symbol && x.side === r.side && now - x.t < holdHours() * 3600e3;
+  }
+  function isTaken(r, now) { return loadTaken().some(function (x) { return sameOpen(x, r, now); }); }
+  function storeTaken(a) {
+    try { localStorage.setItem(TAKEN_KEY, JSON.stringify(a)); return true; } catch (e) { return false; }
+  }
+  function setTaken(r, on) {
+    var now = Date.now();
+    var a = loadTaken().filter(function (x) { return x && now - x.t < TAKEN_DAYS * 864e5; });
+    if (on) {
+      if (!a.some(function (x) { return sameOpen(x, r, now); }))
+        a.push({ t: now, flagged: lastScan, status: r.status, side: r.side, symbol: r.symbol, price: r.price,
+          stop: r.stop, tp: r.tp, dist: r.dist, rr: r.rr, margin: r.margin });
+    } else {
+      a = a.filter(function (x) { return !sameOpen(x, r, now); });
+    }
+    return storeTaken(a);
+  }
+  function takenText() {
+    var rows = loadTaken().sort(function (a, b) { return a.t - b.t; }).map(function (x) {
+      return [when(x.t), x.side, x.symbol, x.status, fmt(x.price), fmt(x.stop), fmt(x.tp), Math.round(x.margin)].join(" | ");
+    });
+    return ["Mudrex scanner picks I took (times in IST)",
+      "ticked | side | coin | status | price | stop | TP | margin Rs"].concat(rows).join("\n");
+  }
+  function renderTaken() {
+    var sec = document.getElementById("taken"), box = document.getElementById("taken-list");
+    if (!sec || !box) return;
+    var now = Date.now(), H = holdHours(), all = loadTaken();
+    var show = all.filter(function (x) { return x && now - x.t < TAKEN_SHOW_DAYS * 864e5; })
+      .sort(function (a, b) { return b.t - a.t; });
+    sec.style.display = all.length ? "block" : "none";
+    var cnt = document.getElementById("taken-count");
+    if (cnt) cnt.textContent = all.length ? "(" + all.length + ")" : "";
+    box.innerHTML = show.length ? show.map(function (x) {
+      var cb = x.t + H * 3600e3, left = (cb - now) / 3600e3;
+      var leftTxt = left >= 1 ? Math.round(left) + "h left" : left > 0 ? "under 1h left" :
+        "time stop passed " + Math.max(1, Math.round(-left)) + "h ago";
+      return '<div class="hrow mine' + (left > 0 ? "" : " past") + '"><div class="htop">' +
+        '<span class="side ' + (x.side === "LONG" ? "long" : "short") + '">' + esc(x.side) + "</span>" +
+        "<strong>" + esc(x.symbol) + "</strong>" +
+        '<span class="hwhen">ticked ' + when(x.t) + "</span></div>" +
+        '<div class="hbody">Entry ' + fmt(x.price) + " &middot; Stop " + fmt(x.stop) + " &middot; TP " + fmt(x.tp) +
+        " &middot; Margin " + inr(x.margin) + "</div>" +
+        '<div class="hbody">Close by <strong>' + when(cb) + " IST</strong> &middot; " + leftTxt + "</div>" +
+        '<button type="button" class="took-remove" data-t="' + x.t + '" data-s="' + esc(x.symbol) + '">Remove</button></div>';
+    }).join("") : '<p class="note">Nothing ticked in the last ' + TAKEN_SHOW_DAYS + " days. Older ticks are still in Copy for review.</p>";
+  }
+
+  function card(r, now, i) {
     var trig = r.status === "TRIGGERED", H = holdHours();
     return '<article class="card ' + (trig ? "trig" : "") + '"><div class="top">' +
       '<span class="badge ' + (trig ? "b-trig" : "b-watch") + '">' + r.status + "</span>" +
@@ -181,7 +238,9 @@
       "<div><dt>Margin</dt><dd>" + inr(r.margin) + "</dd></div>" +
       "<div><dt>Risk</dt><dd>" + inr(r.margin * r.dist) + "</dd></div></dl>" +
       '<p class="hold">Time stop: close by <strong>' + when(now + H * 3600e3) + " IST</strong> if you enter now (" + H + "h)</p>" +
-      '<p class="note">' + esc(r.note) + "</p></article>";
+      '<p class="note">' + esc(r.note) + "</p>" +
+      '<label class="took"><input type="checkbox" class="took-box" data-i="' + i + '"' + (isTaken(r, now) ? " checked" : "") +
+      "> I took this trade</label></article>";
   }
 
   var btn, statusEl, results, sub;
@@ -211,12 +270,14 @@
         return (x.status !== "TRIGGERED") - (y.status !== "TRIGGERED") || y.rr - x.rr;
       });
       var now = Date.now();
-      results.innerHTML = found.length ? found.map(function (r) { return card(r, now); }).join("") :
+      lastFound = found; lastScan = now;
+      results.innerHTML = found.length ? found.map(function (r, i) { return card(r, now, i); }).join("") :
         '<p class="empty">No coins meet the rules right now.<br><strong>That is a valid answer - no trade.</strong></p>';
       var t = new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
       sub.innerHTML = "<strong>Live scan " + t + " IST</strong> &middot; " + liquid + " liquid of " + pairs.length + " coins";
       var st = document.getElementById("stale"); if (st) st.style.display = "none";
       renderHistory(found.length ? saveLog(found, now) : undefined);
+      renderTaken();
       statusEl.textContent = "";
     } catch (e) {
       statusEl.textContent = "Live scan failed: " + e.message + ". Showing the last server scan.";
@@ -232,6 +293,38 @@
     btn.addEventListener("click", scan);
     var h = istHour(Date.now()), night = document.getElementById("night");
     if (night && (h >= 22 || h < 7)) night.style.display = "block";
+    results.addEventListener("change", function (e) {
+      var el = e.target;
+      if (!el || !el.classList || !el.classList.contains("took-box")) return;
+      var r = lastFound[+el.getAttribute("data-i")];
+      if (!r) return;
+      if (!setTaken(r, el.checked)) {
+        el.checked = !el.checked;
+        statusEl.textContent = "Could not save the tick: this browser is blocking storage.";
+      }
+      renderTaken();
+    });
+    var takenList = document.getElementById("taken-list");
+    if (takenList) takenList.addEventListener("click", function (e) {
+      var el = e.target;
+      if (!el || !el.classList || !el.classList.contains("took-remove")) return;
+      var t = +el.getAttribute("data-t"), sym = el.getAttribute("data-s");
+      storeTaken(loadTaken().filter(function (x) { return !(x.t === t && x.symbol === sym); }));
+      renderTaken();
+      var now = Date.now(); // untick the matching card if it is on screen
+      Array.prototype.forEach.call(results.querySelectorAll(".took-box"), function (b) {
+        var r = lastFound[+b.getAttribute("data-i")]; if (r) b.checked = isTaken(r, now);
+      });
+    });
+    var copyBtn = document.getElementById("copy-taken");
+    if (copyBtn) copyBtn.addEventListener("click", function () {
+      var text = takenText(), st = document.getElementById("copy-status"), ta = document.getElementById("copy-box");
+      function shown() { ta.value = text; ta.style.display = "block"; ta.focus(); ta.select(); st.textContent = "Select and copy the text below."; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { st.textContent = "Copied. Paste it into the review chat."; }, shown);
+      } else shown();
+    });
+    renderTaken();
     var filter = document.getElementById("hist-filter");
     if (filter) filter.addEventListener("input", function () { renderHistory(); });
     renderHistory();

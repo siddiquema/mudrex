@@ -13,5 +13,9 @@ Not checked on the phone version: funding rate, and positions you already hold.
 Each candidate shows a close-by time (the 24-hour time stop). Shorts are sized at
 Rs.240 risk (margin cap Rs.2,400), longs at Rs.120 (cap Rs.1,200).
 
+Each card has an "I took this trade" tick box. Ticked trades are listed under
+"Trades I took" with their close-by time (24 hours from the tick), kept in the browser
+for 60 days, and "Copy for review" gives the list as text for the weekly review.
+
 "Past flags on this device" keeps the candidates from live scans for 14 days in the
 browser's own storage, so the phone and the computer each have their own list.
